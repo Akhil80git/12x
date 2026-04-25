@@ -1,21 +1,51 @@
-const express = require('express');
-const mongoose = require('mongoose');
-const cors = require('cors');
+// ════════════════════════════════════════════════════════════════
+//  PageCraft — server.js
+//  Auto-detects: localhost OR Render.com — koi extra config nahi
+//  .env mein sirf MONGODB_URI chahiye, baki sab automatic!
+// ════════════════════════════════════════════════════════════════
+
+const express    = require('express');
+const mongoose   = require('mongoose');
+const cors       = require('cors');
 const { WebSocketServer } = require('ws');
-const http = require('http');
+const http       = require('http');
 const { nanoid } = require('nanoid');
 require('dotenv').config();
 
-const app = express();
+// ── Environment auto-detect ──────────────────────────────────────
+//  Render pe RENDER_EXTERNAL_HOSTNAME auto-milta hai e.g. "app.onrender.com"
+//  .env mein RENDER ya BASE_URL likhne ki zaroorat NAHI — server khud detect karta hai
+const RENDER_HOST = process.env.RENDER_EXTERNAL_HOSTNAME || null;
+const IS_RENDER   = !!RENDER_HOST;
+const PORT        = process.env.PORT || 3000;
+
+// Request se base URL dynamically nikalo
+function getBaseUrl(req) {
+  if (IS_RENDER) {
+    return 'https://' + RENDER_HOST;
+  }
+  return 'http://localhost:' + PORT;
+}
+
+function getWsUrl(req) {
+  return getBaseUrl(req)
+    .replace('https://', 'wss://')
+    .replace('http://',  'ws://');
+}
+
+// ── Express + HTTP + WebSocket ───────────────────────────────────
+const app    = express();
 const server = http.createServer(app);
-const wss = new WebSocketServer({ server });
+const wss    = new WebSocketServer({ server });
 
 app.use(cors());
 app.use(express.json({ limit: '5mb' }));
 app.use(express.static('public'));
 
-// ─── MongoDB Schemas ───────────────────────────────────────────
-mongoose.connect(process.env.MONGODB_URI);
+// ── MongoDB ──────────────────────────────────────────────────────
+mongoose.connect(process.env.MONGODB_URI)
+  .then(() => console.log('✅ MongoDB connected'))
+  .catch(err => console.error('❌ MongoDB error:', err.message));
 
 const PageSchema = new mongoose.Schema({
   projectId: { type: String, required: true, index: true },
@@ -23,23 +53,22 @@ const PageSchema = new mongoose.Schema({
   name:      { type: String, default: 'Untitled Page' },
   code:      { type: String, default: '' },
   order:     { type: Number, default: 0 },
-  updatedAt: { type: Date, default: Date.now },
+  updatedAt: { type: Date,   default: Date.now },
 });
 
 const ProjectSchema = new mongoose.Schema({
-  projectId:   { type: String, unique: true, default: () => nanoid(10) },
-  name:        { type: String, default: 'My Project' },
-  shareToken:  { type: String, unique: true, sparse: true },
-  deployedUrl: { type: String },
-  createdAt:   { type: Date, default: Date.now },
-  updatedAt:   { type: Date, default: Date.now },
+  projectId:  { type: String, unique: true, default: () => nanoid(10) },
+  name:       { type: String, default: 'My Project' },
+  shareToken: { type: String, unique: true, sparse: true },
+  createdAt:  { type: Date, default: Date.now },
+  updatedAt:  { type: Date, default: Date.now },
 });
 
-const Page    = mongoose.model('Page', PageSchema);
+const Page    = mongoose.model('Page',    PageSchema);
 const Project = mongoose.model('Project', ProjectSchema);
 
-// ─── WebSocket: room-based live sync ──────────────────────────
-const rooms = {}; // projectId → Set of ws clients
+// ── WebSocket rooms ──────────────────────────────────────────────
+const rooms = {}; // projectId -> Set<ws>
 
 wss.on('connection', (ws) => {
   let room = null;
@@ -47,14 +76,11 @@ wss.on('connection', (ws) => {
   ws.on('message', (raw) => {
     try {
       const msg = JSON.parse(raw);
-
       if (msg.type === 'join') {
         room = msg.projectId;
         if (!rooms[room]) rooms[room] = new Set();
         rooms[room].add(ws);
       }
-
-      // Live preview broadcast (liveCode — not saved, just preview)
       if (msg.type === 'liveCode' && room) {
         broadcast(room, ws, { type: 'liveCode', pageId: msg.pageId, code: msg.code });
       }
@@ -69,23 +95,32 @@ wss.on('connection', (ws) => {
 function broadcast(room, sender, data) {
   if (!rooms[room]) return;
   const payload = JSON.stringify(data);
-  rooms[room].forEach(client => {
-    if (client !== sender && client.readyState === 1) client.send(payload);
+  rooms[room].forEach(c => {
+    if (c !== sender && c.readyState === 1) c.send(payload);
   });
 }
 
-// ─── API: Projects ─────────────────────────────────────────────
-// Create or get project
+function broadcastAll(room, data) {
+  if (!rooms[room]) return;
+  const payload = JSON.stringify(data);
+  rooms[room].forEach(c => {
+    if (c.readyState === 1) c.send(payload);
+  });
+}
+
+// ════════════════════════════════════════════════════════════════
+//  API — Projects
+// ════════════════════════════════════════════════════════════════
+
 app.post('/api/project', async (req, res) => {
   try {
     const project = await Project.create({ name: req.body.name || 'My Project' });
-    // Create first blank page
     await Page.create({
       projectId: project.projectId,
-      pageId: nanoid(8),
-      name: 'Page 1',
-      code: '',
-      order: 0,
+      pageId:    nanoid(8),
+      name:      'Page 1',
+      code:      '',
+      order:     0,
     });
     res.json({ success: true, project });
   } catch (err) {
@@ -104,23 +139,21 @@ app.get('/api/project/:projectId', async (req, res) => {
   }
 });
 
-// ─── API: Pages ────────────────────────────────────────────────
+// ════════════════════════════════════════════════════════════════
+//  API — Pages
+// ════════════════════════════════════════════════════════════════
+
 app.post('/api/project/:projectId/page', async (req, res) => {
   try {
     const count = await Page.countDocuments({ projectId: req.params.projectId });
-    const page = await Page.create({
+    const page  = await Page.create({
       projectId: req.params.projectId,
-      pageId: nanoid(8),
-      name: req.body.name || `Page ${count + 1}`,
-      code: '',
-      order: count,
+      pageId:    nanoid(8),
+      name:      req.body.name || `Page ${count + 1}`,
+      code:      '',
+      order:     count,
     });
-    // Notify all clients in room
-    const room = req.params.projectId;
-    if (rooms[room]) {
-      const payload = JSON.stringify({ type: 'pageAdded', page });
-      rooms[room].forEach(c => c.readyState === 1 && c.send(payload));
-    }
+    broadcastAll(req.params.projectId, { type: 'pageAdded', page });
     res.json({ success: true, page });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -130,8 +163,8 @@ app.post('/api/project/:projectId/page', async (req, res) => {
 app.put('/api/project/:projectId/page/:pageId', async (req, res) => {
   try {
     const update = { updatedAt: Date.now() };
-    if (req.body.code  !== undefined) update.code = req.body.code;
-    if (req.body.name  !== undefined) update.name = req.body.name;
+    if (req.body.code  !== undefined) update.code  = req.body.code;
+    if (req.body.name  !== undefined) update.name  = req.body.name;
     if (req.body.order !== undefined) update.order = req.body.order;
 
     const page = await Page.findOneAndUpdate(
@@ -139,14 +172,18 @@ app.put('/api/project/:projectId/page/:pageId', async (req, res) => {
       update,
       { new: true }
     );
-    await Project.updateOne({ projectId: req.params.projectId }, { updatedAt: Date.now() });
+    await Project.updateOne(
+      { projectId: req.params.projectId },
+      { updatedAt: Date.now() }
+    );
 
-    // Broadcast saved code to all clients (including viewers)
-    const room = req.params.projectId;
-    if (rooms[room]) {
-      const payload = JSON.stringify({ type: 'pageSaved', pageId: req.params.pageId, code: page.code, name: page.name });
-      rooms[room].forEach(c => c.readyState === 1 && c.send(payload));
-    }
+    broadcastAll(req.params.projectId, {
+      type:   'pageSaved',
+      pageId: req.params.pageId,
+      code:   page.code,
+      name:   page.name,
+    });
+
     res.json({ success: true, page });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -155,138 +192,149 @@ app.put('/api/project/:projectId/page/:pageId', async (req, res) => {
 
 app.delete('/api/project/:projectId/page/:pageId', async (req, res) => {
   try {
-    await Page.deleteOne({ projectId: req.params.projectId, pageId: req.params.pageId });
-    const room = req.params.projectId;
-    if (rooms[room]) {
-      const payload = JSON.stringify({ type: 'pageDeleted', pageId: req.params.pageId });
-      rooms[room].forEach(c => c.readyState === 1 && c.send(payload));
-    }
+    await Page.deleteOne({
+      projectId: req.params.projectId,
+      pageId:    req.params.pageId,
+    });
+    broadcastAll(req.params.projectId, {
+      type:   'pageDeleted',
+      pageId: req.params.pageId,
+    });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// ─── API: Deploy / Share ────────────────────────────────────────
+// ════════════════════════════════════════════════════════════════
+//  API — Deploy & Share
+//  URL auto-detect hoti hai — localhost ya Render dono pe sahi
+// ════════════════════════════════════════════════════════════════
+
 app.post('/api/project/:projectId/deploy', async (req, res) => {
   try {
-    const { projectId } = req.params;
-    const project = await Project.findOne({ projectId });
+    const project = await Project.findOne({ projectId: req.params.projectId });
     if (!project) return res.status(404).json({ error: 'Not found' });
 
-    let shareToken = project.shareToken;
+    let { shareToken } = project;
     if (!shareToken) {
       shareToken = nanoid(12);
-      await Project.updateOne({ projectId }, { shareToken });
+      await Project.updateOne({ projectId: req.params.projectId }, { shareToken });
     }
 
-    const baseUrl = process.env.BASE_URL || `http://localhost:${PORT}`;
-    const url = `${baseUrl}/view/${shareToken}`;
-    await Project.updateOne({ projectId }, { deployedUrl: url });
-
+    // Dynamically build URL — localhost pe localhost, Render pe Render
+    const url = `${getBaseUrl(req)}/view/${shareToken}`;
     res.json({ success: true, url, shareToken });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// ─── Public viewer route ────────────────────────────────────────
-app.get('/view/:shareToken', async (req, res) => {
+// ════════════════════════════════════════════════════════════════
+//  PUBLIC VIEW
+//  /view/:shareToken          => pehla page (default)
+//  /view/:shareToken/:pageId  => specific page
+//  Sirf raw HTML serve hoga — koi UI wrapper nahi
+// ════════════════════════════════════════════════════════════════
+
+app.get(['/view/:shareToken', '/view/:shareToken/:pageId'], async (req, res) => {
   try {
     const project = await Project.findOne({ shareToken: req.params.shareToken });
-    if (!project) return res.status(404).send('<h2>Project not found</h2>');
+    if (!project) return res.status(404).send(errPage('Project not found'));
+
     const pages = await Page.find({ projectId: project.projectId }).sort('order');
+    if (!pages.length) return res.send(errPage('No pages added yet'));
 
-    // Build multi-page viewer HTML
-    const pagesJson = JSON.stringify(pages.map(p => ({ pageId: p.pageId, name: p.name, code: p.code })));
-    const wsUrl = (process.env.BASE_URL || `ws://localhost:${PORT}`).replace('http', 'ws').replace('https', 'wss');
+    const page = req.params.pageId
+      ? (pages.find(p => p.pageId === req.params.pageId) || pages[0])
+      : pages[0];
 
-    res.send(`<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>${project.name} — Live Preview</title>
-<style>
-*{margin:0;padding:0;box-sizing:border-box;}
-body{font-family:system-ui,sans-serif;background:#0f0f17;display:flex;flex-direction:column;align-items:center;min-height:100vh;padding:20px;}
-.top{display:flex;align-items:center;gap:12px;margin-bottom:20px;width:100%;max-width:420px;}
-.proj-name{color:white;font-size:16px;font-weight:700;flex:1;}
-.live-dot{width:8px;height:8px;border-radius:50%;background:#10B981;animation:pulse 1.5s infinite;}
-@keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.4;}}
-.nav{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:20px;width:100%;max-width:420px;}
-.nav-btn{background:#1e1e2e;color:#888;border:none;padding:6px 14px;border-radius:20px;font-size:12px;cursor:pointer;transition:all 0.2s;}
-.nav-btn.active{background:#2A6DF4;color:white;}
-.phone{background:#111118;border-radius:40px;padding:10px 6px;box-shadow:0 24px 60px rgba(0,0,0,0.6),0 0 0 8px #1e1e2e;width:380px;max-width:100%;}
-.screen{width:100%;min-height:600px;background:#F8F9FC;border-radius:30px;overflow:hidden;}
-iframe{width:100%;height:680px;border:none;border-radius:30px;}
-</style>
-</head>
-<body>
-<div class="top">
-  <div class="proj-name">📱 ${project.name}</div>
-  <div class="live-dot" title="Live updates on"></div>
-</div>
-<div class="nav" id="nav"></div>
-<div class="phone"><div class="screen"><iframe id="frame" sandbox="allow-scripts allow-same-origin"></iframe></div></div>
+    const wsUrl = getWsUrl(req);
 
+    // Live-reload script — save hone par automatically update hoga
+    const liveScript = `
 <script>
-let pages = ${pagesJson};
-let activeIdx = 0;
-const nav = document.getElementById('nav');
-const frame = document.getElementById('frame');
-
-function renderNav(){
-  nav.innerHTML='';
-  pages.forEach((p,i)=>{
-    const b=document.createElement('button');
-    b.className='nav-btn'+(i===activeIdx?' active':'');
-    b.textContent=p.name;
-    b.onclick=()=>{ activeIdx=i; renderNav(); showPage(); };
-    nav.appendChild(b);
-  });
-}
-
-function showPage(){
-  const p=pages[activeIdx];
-  const doc=frame.contentDocument||frame.contentWindow.document;
-  doc.open();
-  doc.write(p.code || '<div style="padding:40px;text-align:center;color:#9CA3AF;font-family:system-ui;">Empty page</div>');
-  doc.close();
-}
-
-renderNav(); showPage();
-
-// WebSocket live updates
-const ws=new WebSocket('${wsUrl}');
-ws.onopen=()=>ws.send(JSON.stringify({type:'join',projectId:'${project.projectId}'}));
-ws.onmessage=(e)=>{
-  const msg=JSON.parse(e.data);
-  if(msg.type==='liveCode'||msg.type==='pageSaved'){
-    const p=pages.find(x=>x.pageId===msg.pageId);
-    if(p){ p.code=msg.code; if(pages.indexOf(p)===activeIdx) showPage(); }
+(function(){
+  var PROJ='${project.projectId}';
+  var PAGE='${page.pageId}';
+  function connect(){
+    var ws=new WebSocket('${wsUrl}');
+    ws.onopen=function(){
+      ws.send(JSON.stringify({type:'join',projectId:PROJ}));
+    };
+    ws.onmessage=function(e){
+      try{
+        var msg=JSON.parse(e.data);
+        if(msg.type==='pageSaved' && msg.pageId===PAGE){
+          var parser=new DOMParser();
+          var newDoc=parser.parseFromString(msg.code,'text/html');
+          // body update
+          document.body.innerHTML=newDoc.body.innerHTML;
+          // styles update
+          document.querySelectorAll('style[data-live]').forEach(function(s){s.remove();});
+          newDoc.querySelectorAll('style').forEach(function(s){
+            var clone=s.cloneNode(true);
+            clone.setAttribute('data-live','1');
+            document.head.appendChild(clone);
+          });
+        }
+      }catch(err){}
+    };
+    ws.onclose=function(){
+      // Auto-reconnect after 2 sec
+      setTimeout(connect,2000);
+    };
   }
-  if(msg.type==='pageAdded'){
-    pages.push(msg.page); renderNav();
-  }
-  if(msg.type==='pageDeleted'){
-    pages=pages.filter(x=>x.pageId!==msg.pageId);
-    if(activeIdx>=pages.length) activeIdx=Math.max(0,pages.length-1);
-    renderNav(); showPage();
-  }
-  if(msg.type==='pageSaved'&&msg.name){
-    const p=pages.find(x=>x.pageId===msg.pageId);
-    if(p){ p.name=msg.name; renderNav(); }
-  }
-};
-<\/script>
-</body>
-</html>`);
+  connect();
+})();
+<\/script>`;
+
+    let html = page.code || '<html><body></body></html>';
+
+    // Inject before </body>
+    if (/<\/body>/i.test(html)) {
+      html = html.replace(/<\/body>/i, liveScript + '\n</body>');
+    } else {
+      html = html + liveScript;
+    }
+
+    res.setHeader('Content-Type', 'text/html; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store, no-cache');
+    res.send(html);
   } catch (err) {
-    res.status(500).send('<h2>Server error</h2>');
+    res.status(500).send(errPage('Server error: ' + err.message));
   }
 });
 
-// ─── Start ─────────────────────────────────────────────────────
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log(`🚀 Smart Transit Editor running on port ${PORT}`));
+function errPage(msg) {
+  return `<!DOCTYPE html>
+<html>
+<head><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+<body style="font-family:system-ui;display:flex;align-items:center;justify-content:center;
+             height:100vh;margin:0;background:#f8fafc;">
+  <div style="text-align:center;color:#64748b;">
+    <div style="font-size:48px;margin-bottom:16px;">📭</div>
+    <h2 style="font-weight:600;">${msg}</h2>
+  </div>
+</body>
+</html>`;
+}
+
+// ════════════════════════════════════════════════════════════════
+//  START
+// ════════════════════════════════════════════════════════════════
+server.listen(PORT, () => {
+  console.log('\n╔════════════════════════════════╗');
+  console.log('║      PageCraft  🚀 Started     ║');
+  console.log('╚════════════════════════════════╝');
+  if (IS_RENDER) {
+    console.log(`🌐 Environment  : Render.com`);
+    console.log(`🔗 App URL      : https://${process.env.RENDER_EXTERNAL_HOSTNAME}`);
+  } else {
+    console.log(`💻 Environment  : Localhost`);
+    console.log(`🔗 Editor URL   : http://localhost:${PORT}`);
+    console.log(`🔗 View URL     : http://localhost:${PORT}/view/<shareToken>`);
+  }
+  console.log(`📦 Port         : ${PORT}`);
+  console.log('');
+});

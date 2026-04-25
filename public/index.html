@@ -1,0 +1,1044 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PageCraft — Live Mobile Editor</title>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600;700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.7.2/css/all.min.css">
+<style>
+/* ═══════════════════════════════════════════════
+   RESET & BASE
+═══════════════════════════════════════════════ */
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg:        #0c0c10;
+  --surface:   #13131a;
+  --surface2:  #1a1a24;
+  --border:    #1f1f2e;
+  --border2:   #2a2a3d;
+  --accent:    #5b7cf6;
+  --accent2:   #7c9aff;
+  --green:     #22c55e;
+  --red:       #ef4444;
+  --amber:     #f59e0b;
+  --text:      #e2e8f0;
+  --muted:     #64748b;
+  --muted2:    #94a3b8;
+  --nav-w:     220px;
+  --phone-w:   260px;
+}
+
+body {
+  font-family: 'DM Sans', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  height: 100vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ═══════════════════════════════════════════════
+   TOPBAR
+═══════════════════════════════════════════════ */
+.topbar {
+  height: 52px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 18px;
+  gap: 14px;
+  flex-shrink: 0;
+  z-index: 100;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.logo-icon {
+  width: 32px; height: 32px;
+  background: var(--accent);
+  border-radius: 9px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 14px;
+}
+.logo-text { font-size: 15px; font-weight: 700; letter-spacing: -0.3px; }
+.logo-sub  { font-size: 10px; color: var(--muted); font-weight: 400; }
+
+.proj-name-wrap {
+  display: flex; align-items: center; gap: 6px;
+  background: var(--surface2);
+  border: 1px solid var(--border2);
+  border-radius: 8px;
+  padding: 5px 10px;
+  cursor: pointer;
+}
+.proj-name-wrap input {
+  background: transparent; border: none; outline: none;
+  color: var(--text); font-family: inherit; font-size: 13px; font-weight: 600;
+  width: 160px;
+}
+.proj-name-wrap i { color: var(--muted); font-size: 10px; }
+
+.topbar-spacer { flex: 1; }
+
+.status-pill {
+  display: flex; align-items: center; gap: 6px;
+  font-size: 11px; color: var(--muted2);
+  background: var(--surface2);
+  padding: 5px 11px; border-radius: 20px;
+  border: 1px solid var(--border2);
+}
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
+@keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.3;} }
+
+/* System battery / time */
+.sys-info {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11px; color: var(--muted);
+  background: var(--surface2);
+  padding: 5px 11px; border-radius: 20px;
+  border: 1px solid var(--border2);
+}
+.sys-info i { font-size: 10px; }
+
+.btn-deploy {
+  display: flex; align-items: center; gap: 7px;
+  background: linear-gradient(135deg, var(--accent), var(--accent2));
+  color: white; border: none;
+  padding: 7px 16px; border-radius: 8px;
+  font-size: 12px; font-weight: 600; cursor: pointer;
+  font-family: inherit; transition: all 0.2s;
+}
+.btn-deploy:hover { transform: translateY(-1px); box-shadow: 0 6px 20px rgba(91,124,246,0.4); }
+.btn-deploy:active { transform: translateY(0); }
+
+/* ═══════════════════════════════════════════════
+   MAIN LAYOUT
+═══════════════════════════════════════════════ */
+.main {
+  flex: 1; display: flex; overflow: hidden;
+}
+
+/* ═══════════════════════════════════════════════
+   LEFT NAV — Vertical Pages
+═══════════════════════════════════════════════ */
+.left-nav {
+  width: var(--nav-w);
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.nav-header {
+  padding: 14px 14px 10px;
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+}
+.nav-header-title {
+  font-size: 10px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: 1.2px; color: var(--muted);
+}
+.btn-add-page {
+  width: 26px; height: 26px;
+  background: var(--accent);
+  border: none; border-radius: 7px;
+  color: white; font-size: 14px;
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: all 0.2s; flex-shrink: 0;
+}
+.btn-add-page:hover { background: var(--accent2); transform: scale(1.1); }
+
+.pages-list {
+  flex: 1; overflow-y: auto; padding: 8px 8px;
+}
+.pages-list::-webkit-scrollbar { width: 3px; }
+.pages-list::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
+
+.page-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 10px; border-radius: 9px;
+  cursor: pointer; transition: all 0.15s;
+  margin-bottom: 2px; position: relative;
+  group: true;
+}
+.page-item:hover { background: var(--surface2); }
+.page-item.active { background: rgba(91,124,246,0.15); border: 1px solid rgba(91,124,246,0.25); }
+.page-item.active .page-num { color: var(--accent2); }
+.page-item.active .page-name { color: var(--text); }
+
+.page-num {
+  font-size: 9px; color: var(--muted); font-weight: 600;
+  font-family: 'DM Mono', monospace;
+  width: 18px; flex-shrink: 0; text-align: right;
+}
+.page-name {
+  font-size: 12px; font-weight: 500; color: var(--muted2);
+  flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.page-item.active .page-name { color: var(--text); font-weight: 600; }
+.page-del {
+  width: 18px; height: 18px; border-radius: 5px;
+  background: transparent; border: none; color: var(--muted);
+  font-size: 9px; cursor: pointer; opacity: 0;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s;
+}
+.page-item:hover .page-del { opacity: 1; }
+.page-del:hover { background: rgba(239,68,68,0.15); color: var(--red); }
+
+.page-unsaved-dot {
+  width: 5px; height: 5px; border-radius: 50%;
+  background: var(--amber); flex-shrink: 0;
+  display: none;
+}
+.page-item.unsaved .page-unsaved-dot { display: block; }
+
+/* ═══════════════════════════════════════════════
+   CENTER — Code Editor
+═══════════════════════════════════════════════ */
+.editor-col {
+  flex: 1; display: flex; flex-direction: column; overflow: hidden;
+  background: var(--bg);
+}
+
+.editor-toolbar {
+  height: 42px; background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; padding: 0 14px; gap: 10px;
+  flex-shrink: 0;
+}
+
+.file-badge {
+  font-family: 'DM Mono', monospace;
+  font-size: 11px; color: var(--accent2);
+  background: rgba(91,124,246,0.1);
+  padding: 3px 10px; border-radius: 6px; border: 1px solid rgba(91,124,246,0.2);
+}
+
+.editor-hint { font-size: 11px; color: var(--muted); flex: 1; }
+
+.tb-btn {
+  background: var(--surface2); border: 1px solid var(--border2);
+  color: var(--muted2); padding: 5px 11px; border-radius: 7px;
+  font-size: 11px; cursor: pointer; font-family: inherit;
+  transition: all 0.15s; display: flex; align-items: center; gap: 5px;
+}
+.tb-btn:hover { background: var(--border2); color: var(--text); }
+
+.btn-save-now {
+  background: var(--green); color: white; border: none;
+  padding: 5px 14px; border-radius: 7px;
+  font-size: 11px; font-weight: 600; cursor: pointer;
+  font-family: inherit; transition: all 0.15s;
+  display: flex; align-items: center; gap: 6px;
+}
+.btn-save-now:hover { background: #16a34a; }
+.btn-save-now:active { transform: scale(0.96); }
+
+.save-flash {
+  font-size: 10px; color: var(--green);
+  opacity: 0; transition: opacity 0.3s; white-space: nowrap;
+}
+.save-flash.show { opacity: 1; }
+
+.editor-body { flex: 1; overflow: hidden; position: relative; }
+
+/* Line numbers */
+.editor-gutter {
+  position: absolute; left: 0; top: 0; bottom: 0; width: 44px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  overflow: hidden; padding-top: 14px;
+  user-select: none; pointer-events: none; z-index: 1;
+}
+.gutter-inner {
+  font-family: 'DM Mono', monospace;
+  font-size: 11.5px; line-height: 1.65;
+  color: var(--muted);
+  text-align: right; padding-right: 8px;
+}
+
+textarea#code {
+  position: absolute; inset: 0;
+  padding: 14px 14px 14px 56px;
+  background: var(--bg); color: #c9d1d9;
+  font-family: 'DM Mono', monospace; font-size: 12.5px; line-height: 1.65;
+  border: none; outline: none; resize: none;
+  tab-size: 2; -moz-tab-size: 2;
+  overflow-y: scroll; overflow-x: auto;
+  white-space: pre;
+  scrollbar-width: thin; scrollbar-color: var(--border2) transparent;
+}
+textarea#code::-webkit-scrollbar { width: 6px; }
+textarea#code::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
+
+/* ═══════════════════════════════════════════════
+   RIGHT — Phone Preview
+═══════════════════════════════════════════════ */
+.right-panel {
+  width: calc(var(--phone-w) + 60px);
+  background: var(--surface);
+  border-left: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  align-items: center; padding: 20px 16px 16px;
+  gap: 12px; overflow: hidden; flex-shrink: 0;
+}
+
+.preview-label {
+  font-size: 9px; font-weight: 700; text-transform: uppercase;
+  letter-spacing: 1.4px; color: var(--muted);
+  display: flex; align-items: center; gap: 6px;
+}
+.preview-label .dot { width: 5px; height: 5px; }
+
+/* Phone shell */
+.phone-shell {
+  width: var(--phone-w);
+  background: #111118;
+  border-radius: 38px;
+  padding: 10px 6px;
+  box-shadow:
+    0 0 0 1px #222230,
+    0 0 0 4px #161622,
+    0 0 0 6px #0f0f19,
+    0 24px 60px rgba(0,0,0,0.7);
+  position: relative;
+}
+
+/* Notch */
+.phone-notch {
+  width: 70px; height: 22px;
+  background: #0c0c12;
+  border-radius: 0 0 16px 16px;
+  margin: 0 auto 4px;
+  position: relative;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
+}
+.notch-cam {
+  width: 7px; height: 7px; border-radius: 50%;
+  background: #1e1e2e; border: 1px solid #2a2a3e;
+}
+.notch-speaker {
+  width: 26px; height: 4px; border-radius: 4px;
+  background: #1e1e2e;
+}
+
+/* Status bar inside phone */
+.phone-status {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 4px 14px 0;
+  font-size: 9px; font-weight: 700; color: #1e293b;
+  font-family: 'DM Mono', monospace;
+}
+.phone-status-icons { display: flex; gap: 4px; align-items: center; }
+
+.phone-screen {
+  width: 100%;
+  height: 440px;
+  background: #F8FAFC;
+  border-radius: 24px;
+  overflow: hidden;
+}
+
+.phone-screen iframe {
+  width: 100%; height: 100%;
+  border: none;
+}
+
+/* Empty state */
+.empty-screen {
+  width: 100%; height: 100%;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 10px; color: #94a3b8;
+}
+.empty-screen i { font-size: 28px; color: #cbd5e1; }
+.empty-screen p { font-size: 11px; text-align: center; }
+
+/* Side buttons */
+.phone-side-btn {
+  position: absolute; right: -3px;
+  width: 3px; border-radius: 0 2px 2px 0;
+  background: #1e1e2e;
+}
+
+.right-page-name {
+  font-size: 12px; font-weight: 600; color: var(--text);
+  text-align: center;
+}
+.right-page-sub {
+  font-size: 10px; color: var(--muted);
+  text-align: center; margin-top: -8px;
+}
+
+/* Live indicator on preview */
+.live-badge {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 9px; color: var(--green);
+  background: rgba(34,197,94,0.1);
+  padding: 3px 9px; border-radius: 20px;
+  border: 1px solid rgba(34,197,94,0.2);
+  font-weight: 600;
+}
+
+/* ═══════════════════════════════════════════════
+   MODALS
+═══════════════════════════════════════════════ */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+  display: none; align-items: center; justify-content: center;
+  z-index: 999; backdrop-filter: blur(4px);
+}
+.modal-overlay.open { display: flex; }
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--border2);
+  border-radius: 16px;
+  padding: 28px;
+  width: 440px; max-width: 95vw;
+  box-shadow: 0 24px 60px rgba(0,0,0,0.5);
+  animation: modalIn 0.2s ease;
+}
+@keyframes modalIn { from{transform:scale(0.92);opacity:0;} to{transform:scale(1);opacity:1;} }
+.modal h2 { font-size: 18px; margin-bottom: 6px; }
+.modal p  { font-size: 13px; color: var(--muted2); margin-bottom: 20px; }
+.modal-input {
+  width: 100%; background: var(--surface2);
+  border: 1px solid var(--border2); border-radius: 9px;
+  padding: 10px 14px; color: var(--text);
+  font-family: inherit; font-size: 14px; outline: none;
+  transition: border-color 0.2s; margin-bottom: 16px;
+}
+.modal-input:focus { border-color: var(--accent); }
+.modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
+.modal-btn {
+  padding: 9px 20px; border-radius: 9px;
+  font-size: 13px; font-weight: 600; cursor: pointer;
+  font-family: inherit; border: none; transition: all 0.15s;
+}
+.modal-btn.cancel { background: var(--surface2); color: var(--muted2); }
+.modal-btn.cancel:hover { background: var(--border2); }
+.modal-btn.confirm { background: var(--accent); color: white; }
+.modal-btn.confirm:hover { background: var(--accent2); }
+
+/* Deploy Modal */
+.deploy-url {
+  background: var(--bg); border: 1px solid var(--border2);
+  border-radius: 9px; padding: 12px 14px;
+  font-family: 'DM Mono', monospace; font-size: 12px;
+  color: var(--accent2); word-break: break-all;
+  margin-bottom: 16px; cursor: pointer;
+  transition: border-color 0.2s;
+}
+.deploy-url:hover { border-color: var(--accent); }
+.copy-hint { font-size: 11px; color: var(--muted); margin-top: -12px; margin-bottom: 16px; }
+
+/* ═══════════════════════════════════════════════
+   TOAST
+═══════════════════════════════════════════════ */
+#toast {
+  position: fixed; bottom: 20px; left: 50%;
+  transform: translateX(-50%);
+  background: #1e293b; color: white;
+  padding: 8px 18px; border-radius: 24px;
+  font-size: 12px; font-weight: 500;
+  z-index: 9999; opacity: 0;
+  transition: opacity 0.25s;
+  pointer-events: none;
+  border: 1px solid rgba(255,255,255,0.1);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.4);
+}
+#toast.show { opacity: 1; }
+
+/* ═══════════════════════════════════════════════
+   LOADING STATE
+═══════════════════════════════════════════════ */
+#loading {
+  position: fixed; inset: 0;
+  background: var(--bg);
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  gap: 16px; z-index: 9998;
+}
+#loading.hidden { display: none; }
+.loading-icon {
+  width: 48px; height: 48px;
+  background: var(--accent);
+  border-radius: 14px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 22px;
+  animation: loadBounce 1s infinite;
+}
+@keyframes loadBounce { 0%,100%{transform:translateY(0);} 50%{transform:translateY(-8px);} }
+.loading-text { font-size: 15px; font-weight: 600; color: var(--text); }
+.loading-sub  { font-size: 12px; color: var(--muted); }
+
+/* Scrollbar global */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<!-- Loading Screen -->
+<div id="loading">
+  <div class="loading-icon">📱</div>
+  <div class="loading-text">PageCraft</div>
+  <div class="loading-sub">Loading your project...</div>
+</div>
+
+<!-- Topbar -->
+<div class="topbar">
+  <div class="logo">
+    <div class="logo-icon">✦</div>
+    <div>
+      <div class="logo-text">PageCraft</div>
+    </div>
+  </div>
+
+  <div class="proj-name-wrap" title="Click to rename">
+    <i class="fas fa-pen" style="font-size:9px;"></i>
+    <input type="text" id="projNameInput" value="My Project" spellcheck="false">
+  </div>
+
+  <div class="topbar-spacer"></div>
+
+  <div class="sys-info">
+    <i class="fas fa-clock"></i>
+    <span id="sysTime">--:--</span>
+    <i class="fas fa-battery-three-quarters" id="batIcon"></i>
+    <span id="batLevel">--%</span>
+    <i class="fas fa-wifi"></i>
+  </div>
+
+  <div class="status-pill">
+    <div class="dot"></div>
+    <span id="connStatus">Connecting...</span>
+  </div>
+
+  <button class="btn-deploy" onclick="deployProject()">
+    <i class="fas fa-rocket"></i> Deploy & Share
+  </button>
+</div>
+
+<!-- Main -->
+<div class="main">
+
+  <!-- LEFT NAV -->
+  <div class="left-nav">
+    <div class="nav-header">
+      <span class="nav-header-title">Pages</span>
+      <button class="btn-add-page" onclick="promptAddPage()" title="Add new page">
+        <i class="fas fa-plus" style="font-size:12px;"></i>
+      </button>
+    </div>
+    <div class="pages-list" id="pagesList"></div>
+  </div>
+
+  <!-- EDITOR -->
+  <div class="editor-col">
+    <div class="editor-toolbar">
+      <span class="file-badge" id="fileBadge">select a page</span>
+      <span class="editor-hint">type → live preview updates automatically · Ctrl+S to save</span>
+      <button class="tb-btn" onclick="clearEditor()"><i class="fas fa-trash"></i> Clear</button>
+      <button class="btn-save-now" onclick="savePage()">
+        <i class="fas fa-cloud-upload-alt"></i> Save to DB
+      </button>
+      <span class="save-flash" id="saveFlash">✓ Saved</span>
+    </div>
+    <div class="editor-body">
+      <div class="editor-gutter"><div class="gutter-inner" id="lineNums">1</div></div>
+      <textarea id="code" spellcheck="false" autocomplete="off" placeholder="<!-- Select or create a page to start coding... -->
+<!-- Your HTML here will render live in the phone preview -->
+<!-- Press Ctrl+S to save to database -->"></textarea>
+    </div>
+  </div>
+
+  <!-- RIGHT PHONE PREVIEW -->
+  <div class="right-panel">
+    <div class="preview-label"><div class="dot"></div> Live Preview</div>
+
+    <div class="phone-shell">
+      <!-- Side buttons -->
+      <div class="phone-side-btn" style="top:80px;height:32px;"></div>
+      <div class="phone-side-btn" style="top:122px;height:52px;"></div>
+
+      <!-- Notch -->
+      <div class="phone-notch">
+        <div class="notch-cam"></div>
+        <div class="notch-speaker"></div>
+      </div>
+
+      <!-- Status bar -->
+      <div class="phone-status">
+        <span id="phoneTime">9:41</span>
+        <div class="phone-status-icons">
+          <span id="phoneBat">🔋</span>
+          <i class="fas fa-wifi" style="font-size:8px;"></i>
+        </div>
+      </div>
+
+      <!-- Screen -->
+      <div class="phone-screen">
+        <iframe id="previewFrame" sandbox="allow-scripts allow-same-origin allow-modals"></iframe>
+      </div>
+    </div>
+
+    <div class="live-badge"><div class="dot"></div> Auto Preview</div>
+    <div class="right-page-name" id="rightPageName">No page selected</div>
+    <div class="right-page-sub" id="rightPageSub">Add or select a page →</div>
+  </div>
+
+</div>
+
+<!-- Modal: Add Page -->
+<div class="modal-overlay" id="addPageModal">
+  <div class="modal">
+    <h2>📄 New Page</h2>
+    <p>Give your page a name to get started.</p>
+    <input class="modal-input" id="newPageName" placeholder="e.g. Home, Login, Dashboard..." maxlength="40">
+    <div class="modal-actions">
+      <button class="modal-btn cancel" onclick="closeModal('addPageModal')">Cancel</button>
+      <button class="modal-btn confirm" onclick="confirmAddPage()">Create Page</button>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Deploy -->
+<div class="modal-overlay" id="deployModal">
+  <div class="modal">
+    <h2>🚀 Deployed!</h2>
+    <p>Your project is live. Share this link with anyone — they'll see live updates when you save.</p>
+    <div class="deploy-url" id="deployUrlBox" onclick="copyUrl()" title="Click to copy"></div>
+    <div class="copy-hint">👆 Click to copy</div>
+    <div class="modal-actions">
+      <button class="modal-btn cancel" onclick="closeModal('deployModal')">Close</button>
+      <button class="modal-btn confirm" onclick="copyUrl()"><i class="fas fa-copy"></i> Copy Link</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════════════════════
+//  STATE
+// ══════════════════════════════════════════════════════════════
+let projectId   = null;
+let pages       = [];     // [{pageId, name, code, order}]
+let activePageId = null;
+let ws          = null;
+let saveTimer   = null;
+let liveTimer   = null;
+let deployedUrl = null;
+
+const code      = document.getElementById('code');
+const frame     = document.getElementById('previewFrame');
+const lineNums  = document.getElementById('lineNums');
+const saveFlash = document.getElementById('saveFlash');
+
+// ══════════════════════════════════════════════════════════════
+//  INIT — Get or create project
+// ══════════════════════════════════════════════════════════════
+async function init() {
+  // Persist projectId in localStorage
+  projectId = localStorage.getItem('pagecraft_projectId');
+
+  try {
+    if (projectId) {
+      const res = await fetch(`/api/project/${projectId}`);
+      if (!res.ok) throw new Error('not found');
+      const data = await res.json();
+      pages = data.pages || [];
+      document.getElementById('projNameInput').value = data.project.name;
+      deployedUrl = data.project.deployedUrl;
+    } else {
+      throw new Error('no id');
+    }
+  } catch {
+    // Create fresh project
+    const res = await fetch('/api/project', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: 'My Project' }),
+    });
+    const data = await res.json();
+    projectId = data.project.projectId;
+    pages = []; // will get from page add response below
+    // Reload to get pages
+    const res2 = await fetch(`/api/project/${projectId}`);
+    const data2 = await res2.json();
+    pages = data2.pages || [];
+    localStorage.setItem('pagecraft_projectId', projectId);
+  }
+
+  renderPagesList();
+  if (pages.length > 0) openPage(pages[0].pageId);
+  connectWS();
+  document.getElementById('loading').classList.add('hidden');
+}
+
+// ══════════════════════════════════════════════════════════════
+//  WEBSOCKET
+// ══════════════════════════════════════════════════════════════
+function connectWS() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}`);
+
+  ws.onopen = () => {
+    ws.send(JSON.stringify({ type: 'join', projectId }));
+    document.getElementById('connStatus').textContent = 'Live';
+  };
+
+  ws.onclose = () => {
+    document.getElementById('connStatus').textContent = 'Reconnecting...';
+    setTimeout(connectWS, 3000);
+  };
+
+  ws.onerror = () => ws.close();
+
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'pageAdded') {
+      pages.push(msg.page);
+      renderPagesList();
+    }
+    if (msg.type === 'pageDeleted') {
+      pages = pages.filter(p => p.pageId !== msg.pageId);
+      renderPagesList();
+    }
+    if (msg.type === 'pageSaved') {
+      const p = pages.find(x => x.pageId === msg.pageId);
+      if (p) { p.code = msg.code; if (msg.name) p.name = msg.name; }
+    }
+  };
+}
+
+// ══════════════════════════════════════════════════════════════
+//  PAGES LIST RENDER
+// ══════════════════════════════════════════════════════════════
+function renderPagesList() {
+  const list = document.getElementById('pagesList');
+  list.innerHTML = '';
+
+  if (pages.length === 0) {
+    list.innerHTML = `<div style="padding:20px;text-align:center;color:var(--muted);font-size:12px;">
+      No pages yet.<br>Click <strong>+</strong> to add one.
+    </div>`;
+    return;
+  }
+
+  pages.forEach((p, i) => {
+    const item = document.createElement('div');
+    item.className = 'page-item' + (p.pageId === activePageId ? ' active' : '');
+    item.dataset.pageId = p.pageId;
+    item.innerHTML = `
+      <span class="page-num">${String(i + 1).padStart(2, '0')}</span>
+      <span class="page-name">${escHtml(p.name)}</span>
+      <div class="page-unsaved-dot"></div>
+      <button class="page-del" onclick="deletePage('${p.pageId}',event)" title="Delete page">
+        <i class="fas fa-times"></i>
+      </button>
+    `;
+    item.addEventListener('click', (e) => {
+      if (!e.target.closest('.page-del')) openPage(p.pageId);
+    });
+    list.appendChild(item);
+  });
+}
+
+// ══════════════════════════════════════════════════════════════
+//  OPEN PAGE
+// ══════════════════════════════════════════════════════════════
+function openPage(pageId) {
+  activePageId = pageId;
+  const p = pages.find(x => x.pageId === pageId);
+  if (!p) return;
+
+  code.value = p.code || '';
+  updateLineNumbers();
+  renderPreview(p.code || '');
+
+  document.getElementById('fileBadge').textContent = `page_${String(pages.indexOf(p)+1).padStart(2,'0')}_${p.name.toLowerCase().replace(/\s+/g,'_')}.html`;
+  document.getElementById('rightPageName').textContent = p.name;
+  document.getElementById('rightPageSub').textContent = `Page ${pages.indexOf(p)+1} of ${pages.length}`;
+
+  renderPagesList(); // highlight
+}
+
+// ══════════════════════════════════════════════════════════════
+//  PREVIEW
+// ══════════════════════════════════════════════════════════════
+function renderPreview(html) {
+  const doc = frame.contentDocument || frame.contentWindow.document;
+  doc.open();
+  doc.write(html || emptyHTML());
+  doc.close();
+}
+
+function emptyHTML() {
+  return `<div style="font-family:system-ui;display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;color:#94a3b8;gap:8px;padding:20px;text-align:center;">
+    <div style="font-size:32px;">📄</div>
+    <div style="font-size:13px;font-weight:600;">Empty Page</div>
+    <div style="font-size:11px;">Start typing HTML in the editor</div>
+  </div>`;
+}
+
+// ══════════════════════════════════════════════════════════════
+//  CODE EDITOR EVENTS
+// ══════════════════════════════════════════════════════════════
+code.addEventListener('input', () => {
+  updateLineNumbers();
+
+  // Mark as unsaved
+  markUnsaved();
+
+  // Live preview after 400ms debounce
+  clearTimeout(liveTimer);
+  liveTimer = setTimeout(() => {
+    const html = code.value;
+    renderPreview(html);
+
+    // Broadcast live preview (not saved)
+    if (ws && ws.readyState === 1 && activePageId) {
+      ws.send(JSON.stringify({ type: 'liveCode', pageId: activePageId, code: html }));
+    }
+  }, 400);
+});
+
+code.addEventListener('keydown', (e) => {
+  if (e.key === 'Tab') {
+    e.preventDefault();
+    const s = code.selectionStart;
+    code.value = code.value.slice(0, s) + '  ' + code.value.slice(code.selectionEnd);
+    code.selectionStart = code.selectionEnd = s + 2;
+    updateLineNumbers();
+  }
+  if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+    e.preventDefault();
+    savePage();
+  }
+});
+
+code.addEventListener('scroll', () => {
+  lineNums.parentElement.scrollTop = code.scrollTop;
+});
+
+function updateLineNumbers() {
+  const lines = code.value.split('\n').length;
+  lineNums.innerHTML = Array.from({ length: lines }, (_, i) => i + 1).join('<br>');
+}
+
+function markUnsaved() {
+  const item = document.querySelector(`.page-item[data-page-id="${activePageId}"]`);
+  if (item) item.classList.add('unsaved');
+}
+
+function clearEditor() {
+  if (!activePageId) return;
+  if (!confirm('Clear all code on this page?')) return;
+  code.value = '';
+  updateLineNumbers();
+  renderPreview('');
+  markUnsaved();
+}
+
+// ══════════════════════════════════════════════════════════════
+//  SAVE PAGE → DB
+// ══════════════════════════════════════════════════════════════
+async function savePage() {
+  if (!activePageId) { showToast('⚠ Select a page first'); return; }
+
+  const html = code.value;
+  const p = pages.find(x => x.pageId === activePageId);
+  if (!p) return;
+
+  try {
+    await fetch(`/api/project/${projectId}/page/${activePageId}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: html }),
+    });
+    p.code = html;
+
+    // Un-mark unsaved
+    const item = document.querySelector(`.page-item[data-page-id="${activePageId}"]`);
+    if (item) item.classList.remove('unsaved');
+
+    // Flash
+    saveFlash.classList.add('show');
+    setTimeout(() => saveFlash.classList.remove('show'), 2000);
+    showToast('✓ Saved to database!');
+  } catch {
+    showToast('✗ Save failed — check connection');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  ADD PAGE
+// ══════════════════════════════════════════════════════════════
+function promptAddPage() {
+  document.getElementById('newPageName').value = '';
+  openModal('addPageModal');
+  setTimeout(() => document.getElementById('newPageName').focus(), 100);
+}
+
+async function confirmAddPage() {
+  const name = document.getElementById('newPageName').value.trim();
+  if (!name) { showToast('⚠ Enter a page name'); return; }
+  closeModal('addPageModal');
+
+  try {
+    const res = await fetch(`/api/project/${projectId}/page`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name }),
+    });
+    const data = await res.json();
+    pages.push(data.page);
+    renderPagesList();
+    openPage(data.page.pageId);
+    showToast(`✓ "${name}" created!`);
+  } catch {
+    showToast('✗ Failed to create page');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  DELETE PAGE
+// ══════════════════════════════════════════════════════════════
+async function deletePage(pageId, e) {
+  e.stopPropagation();
+  const p = pages.find(x => x.pageId === pageId);
+  if (!confirm(`Delete "${p?.name}"? This cannot be undone.`)) return;
+
+  try {
+    await fetch(`/api/project/${projectId}/page/${pageId}`, { method: 'DELETE' });
+    pages = pages.filter(x => x.pageId !== pageId);
+    renderPagesList();
+    if (activePageId === pageId) {
+      activePageId = null;
+      code.value = '';
+      updateLineNumbers();
+      renderPreview('');
+      document.getElementById('rightPageName').textContent = 'No page selected';
+      document.getElementById('rightPageSub').textContent = 'Select a page from the left';
+      if (pages.length > 0) openPage(pages[0].pageId);
+    }
+    showToast('🗑 Page deleted');
+  } catch {
+    showToast('✗ Failed to delete');
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  DEPLOY
+// ══════════════════════════════════════════════════════════════
+async function deployProject() {
+  try {
+    const btn = document.querySelector('.btn-deploy');
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Deploying...';
+    btn.disabled = true;
+
+    const res = await fetch(`/api/project/${projectId}/deploy`, { method: 'POST' });
+    const data = await res.json();
+    deployedUrl = data.url;
+
+    document.getElementById('deployUrlBox').textContent = deployedUrl;
+    openModal('deployModal');
+  } catch {
+    showToast('✗ Deploy failed');
+  } finally {
+    const btn = document.querySelector('.btn-deploy');
+    btn.innerHTML = '<i class="fas fa-rocket"></i> Deploy & Share';
+    btn.disabled = false;
+  }
+}
+
+function copyUrl() {
+  if (!deployedUrl) return;
+  navigator.clipboard.writeText(deployedUrl).then(() => showToast('✓ Link copied!'));
+}
+
+// ══════════════════════════════════════════════════════════════
+//  PROJECT NAME SAVE
+// ══════════════════════════════════════════════════════════════
+let nameTimer = null;
+document.getElementById('projNameInput').addEventListener('input', () => {
+  clearTimeout(nameTimer);
+  nameTimer = setTimeout(async () => {
+    // Just save name (future: add name field to project update endpoint)
+    showToast('✓ Project name updated');
+  }, 1000);
+});
+
+// ══════════════════════════════════════════════════════════════
+//  SYSTEM TIME + BATTERY
+// ══════════════════════════════════════════════════════════════
+function updateSysInfo() {
+  const now = new Date();
+  const t = now.getHours().toString().padStart(2,'0') + ':' + now.getMinutes().toString().padStart(2,'0');
+  document.getElementById('sysTime').textContent = t;
+  document.getElementById('phoneTime').textContent = t;
+
+  if (navigator.getBattery) {
+    navigator.getBattery().then(b => {
+      const lvl = Math.round(b.level * 100);
+      document.getElementById('batLevel').textContent = lvl + '%';
+      const batIcon = document.getElementById('batIcon');
+      batIcon.className = 'fas ' + (lvl > 80 ? 'fa-battery-full' : lvl > 50 ? 'fa-battery-three-quarters' : lvl > 25 ? 'fa-battery-half' : 'fa-battery-quarter');
+      document.getElementById('phoneBat').textContent = lvl > 50 ? '🔋' : '🪫';
+    });
+  }
+}
+setInterval(updateSysInfo, 30000);
+updateSysInfo();
+
+// ══════════════════════════════════════════════════════════════
+//  MODAL HELPERS
+// ══════════════════════════════════════════════════════════════
+function openModal(id)  { document.getElementById(id).classList.add('open'); }
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+
+document.querySelectorAll('.modal-overlay').forEach(o => {
+  o.addEventListener('click', (e) => { if (e.target === o) o.classList.remove('open'); });
+});
+document.getElementById('newPageName').addEventListener('keydown', e => {
+  if (e.key === 'Enter') confirmAddPage();
+  if (e.key === 'Escape') closeModal('addPageModal');
+});
+
+// ══════════════════════════════════════════════════════════════
+//  TOAST
+// ══════════════════════════════════════════════════════════════
+let toastTimer = null;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// ══════════════════════════════════════════════════════════════
+//  UTILS
+// ══════════════════════════════════════════════════════════════
+function escHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ══════════════════════════════════════════════════════════════
+//  START
+// ══════════════════════════════════════════════════════════════
+init();
+</script>
+</body>
+</html>

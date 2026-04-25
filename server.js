@@ -1,9 +1,3 @@
-// ════════════════════════════════════════════════════════════════
-//  PageCraft — server.js
-//  Auto-detects: localhost OR Render.com — koi extra config nahi
-//  .env mein sirf MONGODB_URI chahiye, baki sab automatic!
-// ════════════════════════════════════════════════════════════════
-
 const express    = require('express');
 const mongoose   = require('mongoose');
 const cors       = require('cors');
@@ -12,28 +6,18 @@ const http       = require('http');
 const { nanoid } = require('nanoid');
 require('dotenv').config();
 
-// ── Environment auto-detect ──────────────────────────────────────
-//  Render pe RENDER_EXTERNAL_HOSTNAME auto-milta hai e.g. "app.onrender.com"
-//  .env mein RENDER ya BASE_URL likhne ki zaroorat NAHI — server khud detect karta hai
-const RENDER_HOST = process.env.RENDER_EXTERNAL_HOSTNAME || null;
-const IS_RENDER   = !!RENDER_HOST;
+const RENDER_HOST = process.env.RENDER_EXTERNAL_HOSTNAME || '';
+const IS_RENDER   = RENDER_HOST.length > 0;
 const PORT        = process.env.PORT || 3000;
 
-// Request se base URL dynamically nikalo
 function getBaseUrl(req) {
-  if (IS_RENDER) {
-    return 'https://' + RENDER_HOST;
-  }
-  return 'http://localhost:' + PORT;
+  if (IS_RENDER) return 'https://' + RENDER_HOST;
+  return 'http://' + req.headers.host;
 }
-
 function getWsUrl(req) {
-  return getBaseUrl(req)
-    .replace('https://', 'wss://')
-    .replace('http://',  'ws://');
+  return getBaseUrl(req).replace('https://', 'wss://').replace('http://', 'ws://');
 }
 
-// ── Express + HTTP + WebSocket ───────────────────────────────────
 const app    = express();
 const server = http.createServer(app);
 const wss    = new WebSocketServer({ server });
@@ -42,10 +26,9 @@ app.use(cors());
 app.use(express.json({ limit: '5mb' }));
 app.use(express.static('public'));
 
-// ── MongoDB ──────────────────────────────────────────────────────
 mongoose.connect(process.env.MONGODB_URI)
-  .then(() => console.log('✅ MongoDB connected'))
-  .catch(err => console.error('❌ MongoDB error:', err.message));
+  .then(() => console.log('MongoDB connected'))
+  .catch(err => console.error('MongoDB error:', err.message));
 
 const PageSchema = new mongoose.Schema({
   projectId: { type: String, required: true, index: true },
@@ -67,32 +50,41 @@ const ProjectSchema = new mongoose.Schema({
 const Page    = mongoose.model('Page',    PageSchema);
 const Project = mongoose.model('Project', ProjectSchema);
 
-// ── WebSocket rooms ──────────────────────────────────────────────
-const rooms = {}; // projectId -> Set<ws>
+// ── WebSocket ────────────────────────────────────────────────────
+const rooms = {};
 
 wss.on('connection', (ws) => {
-  let room = null;
+  let myRoom = null;
 
   ws.on('message', (raw) => {
     try {
-      const msg = JSON.parse(raw);
-      if (msg.type === 'join') {
-        room = msg.projectId;
-        if (!rooms[room]) rooms[room] = new Set();
-        rooms[room].add(ws);
+      const msg = JSON.parse(raw.toString());
+
+      if (msg.type === 'join' && msg.projectId) {
+        myRoom = msg.projectId;
+        if (!rooms[myRoom]) rooms[myRoom] = new Set();
+        rooms[myRoom].add(ws);
+        ws.send(JSON.stringify({ type: 'joined', projectId: myRoom }));
       }
-      if (msg.type === 'liveCode' && room) {
-        broadcast(room, ws, { type: 'liveCode', pageId: msg.pageId, code: msg.code });
+
+      if (msg.type === 'liveCode' && myRoom) {
+        broadcastOthers(myRoom, ws, {
+          type:   'liveCode',
+          pageId: msg.pageId,
+          code:   msg.code,
+        });
       }
-    } catch {}
+    } catch (e) {}
   });
 
   ws.on('close', () => {
-    if (room && rooms[room]) rooms[room].delete(ws);
+    if (myRoom && rooms[myRoom]) rooms[myRoom].delete(ws);
   });
+
+  ws.on('error', () => {});
 });
 
-function broadcast(room, sender, data) {
+function broadcastOthers(room, sender, data) {
   if (!rooms[room]) return;
   const payload = JSON.stringify(data);
   rooms[room].forEach(c => {
@@ -108,10 +100,7 @@ function broadcastAll(room, data) {
   });
 }
 
-// ════════════════════════════════════════════════════════════════
-//  API — Projects
-// ════════════════════════════════════════════════════════════════
-
+// ── API: Projects ────────────────────────────────────────────────
 app.post('/api/project', async (req, res) => {
   try {
     const project = await Project.create({ name: req.body.name || 'My Project' });
@@ -139,10 +128,7 @@ app.get('/api/project/:projectId', async (req, res) => {
   }
 });
 
-// ════════════════════════════════════════════════════════════════
-//  API — Pages
-// ════════════════════════════════════════════════════════════════
-
+// ── API: Pages ───────────────────────────────────────────────────
 app.post('/api/project/:projectId/page', async (req, res) => {
   try {
     const count = await Page.countDocuments({ projectId: req.params.projectId });
@@ -160,26 +146,32 @@ app.post('/api/project/:projectId/page', async (req, res) => {
   }
 });
 
+// ── SAVE PAGE ─────────────────────────────────────────────────────
+// Jab editor save karta hai:
+// 1. DB mein code update hota hai
+// 2. broadcastAll se viewer ko naya code milta hai
+// 3. Viewer iframe.srcdoc = naya code → poora page fresh load
 app.put('/api/project/:projectId/page/:pageId', async (req, res) => {
   try {
+    const { projectId, pageId } = req.params;
     const update = { updatedAt: Date.now() };
     if (req.body.code  !== undefined) update.code  = req.body.code;
     if (req.body.name  !== undefined) update.name  = req.body.name;
     if (req.body.order !== undefined) update.order = req.body.order;
 
     const page = await Page.findOneAndUpdate(
-      { projectId: req.params.projectId, pageId: req.params.pageId },
+      { projectId, pageId },
       update,
-      { new: true }
-    );
-    await Project.updateOne(
-      { projectId: req.params.projectId },
-      { updatedAt: Date.now() }
+      { returnDocument: 'after' }   // mongoose deprecation warning bhi fix
     );
 
-    broadcastAll(req.params.projectId, {
+    if (!page) return res.status(404).json({ error: 'Page not found' });
+
+    await Project.updateOne({ projectId }, { updatedAt: Date.now() });
+
+    broadcastAll(projectId, {
       type:   'pageSaved',
-      pageId: req.params.pageId,
+      pageId: pageId,
       code:   page.code,
       name:   page.name,
     });
@@ -192,25 +184,15 @@ app.put('/api/project/:projectId/page/:pageId', async (req, res) => {
 
 app.delete('/api/project/:projectId/page/:pageId', async (req, res) => {
   try {
-    await Page.deleteOne({
-      projectId: req.params.projectId,
-      pageId:    req.params.pageId,
-    });
-    broadcastAll(req.params.projectId, {
-      type:   'pageDeleted',
-      pageId: req.params.pageId,
-    });
+    await Page.deleteOne({ projectId: req.params.projectId, pageId: req.params.pageId });
+    broadcastAll(req.params.projectId, { type: 'pageDeleted', pageId: req.params.pageId });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// ════════════════════════════════════════════════════════════════
-//  API — Deploy & Share
-//  URL auto-detect hoti hai — localhost ya Render dono pe sahi
-// ════════════════════════════════════════════════════════════════
-
+// ── Deploy ───────────────────────────────────────────────────────
 app.post('/api/project/:projectId/deploy', async (req, res) => {
   try {
     const project = await Project.findOne({ projectId: req.params.projectId });
@@ -222,119 +204,132 @@ app.post('/api/project/:projectId/deploy', async (req, res) => {
       await Project.updateOne({ projectId: req.params.projectId }, { shareToken });
     }
 
-    // Dynamically build URL — localhost pe localhost, Render pe Render
-    const url = `${getBaseUrl(req)}/view/${shareToken}`;
+    const url = getBaseUrl(req) + '/view/' + shareToken;
     res.json({ success: true, url, shareToken });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// ════════════════════════════════════════════════════════════════
-//  PUBLIC VIEW
-//  /view/:shareToken          => pehla page (default)
-//  /view/:shareToken/:pageId  => specific page
-//  Sirf raw HTML serve hoga — koi UI wrapper nahi
-// ════════════════════════════════════════════════════════════════
-
+// ── VIEW (shared link) ───────────────────────────────────────────
+// Fix: viewer ek wrapper HTML hai jisme:
+//   - <iframe id="f"> = user ka actual HTML (srcdoc se load)
+//   - WS script iframe ke BAHAR hai
+// Jab pageSaved aata hai → f.srcdoc = msg.code
+// Poora HTML replace hota hai (head+body+styles+scripts sab)
+// WS connection alive rehti hai kyunki wo iframe ke bahar hai
 app.get(['/view/:shareToken', '/view/:shareToken/:pageId'], async (req, res) => {
   try {
     const project = await Project.findOne({ shareToken: req.params.shareToken });
     if (!project) return res.status(404).send(errPage('Project not found'));
 
     const pages = await Page.find({ projectId: project.projectId }).sort('order');
-    if (!pages.length) return res.send(errPage('No pages added yet'));
+    if (!pages.length) return res.send(errPage('No pages yet'));
 
     const page = req.params.pageId
       ? (pages.find(p => p.pageId === req.params.pageId) || pages[0])
       : pages[0];
 
-    const wsUrl = getWsUrl(req);
+    const wsUrl     = getWsUrl(req);
+    const projectId = project.projectId;
+    const pageId    = page.pageId;
+    const initCode  = JSON.stringify(page.code || '');
 
-    // Live-reload script — save hone par automatically update hoga
-    const liveScript = `
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${esc(page.name)}</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{width:100%;height:100%;overflow:hidden;background:#fff}
+#f{width:100%;height:100%;border:none;display:block}
+#badge{
+  position:fixed;bottom:12px;right:12px;z-index:99999;
+  background:rgba(0,0,0,0.6);color:#22c55e;
+  font:600 11px/1 system-ui,sans-serif;
+  padding:5px 10px;border-radius:20px;
+  display:flex;align-items:center;gap:5px;
+  pointer-events:none;transition:color .3s;
+}
+#badge .d{width:6px;height:6px;border-radius:50%;background:#22c55e;animation:p 2s infinite}
+@keyframes p{0%,100%{opacity:1}50%{opacity:.2}}
+#badge.upd{color:#f59e0b}
+#badge.upd .d{background:#f59e0b;animation:none}
+</style>
+</head>
+<body>
+<iframe id="f" sandbox="allow-scripts allow-same-origin allow-forms allow-popups"></iframe>
+<div id="badge"><span class="d"></span><span id="bt">Live</span></div>
 <script>
 (function(){
-  var PROJ='${project.projectId}';
-  var PAGE='${page.pageId}';
+  var ws,retries=0;
+  var f=document.getElementById('f');
+  var badge=document.getElementById('badge');
+  var bt=document.getElementById('bt');
+  var WSURL=${JSON.stringify(wsUrl)};
+  var PROJ=${JSON.stringify(projectId)};
+  var PAGE=${JSON.stringify(pageId)};
+
+  function load(code){
+    f.srcdoc=code||'<body style="font:14px system-ui;display:flex;align-items:center;justify-content:center;height:100vh;color:#94a3b8">Empty page</body>';
+  }
+
+  load(${initCode});
+
   function connect(){
-    var ws=new WebSocket('${wsUrl}');
+    ws=new WebSocket(WSURL);
     ws.onopen=function(){
       ws.send(JSON.stringify({type:'join',projectId:PROJ}));
+      retries=0;
+      badge.classList.remove('upd');
+      bt.textContent='Live';
     };
     ws.onmessage=function(e){
       try{
         var msg=JSON.parse(e.data);
-        if(msg.type==='pageSaved' && msg.pageId===PAGE){
-          var parser=new DOMParser();
-          var newDoc=parser.parseFromString(msg.code,'text/html');
-          // body update
-          document.body.innerHTML=newDoc.body.innerHTML;
-          // styles update
-          document.querySelectorAll('style[data-live]').forEach(function(s){s.remove();});
-          newDoc.querySelectorAll('style').forEach(function(s){
-            var clone=s.cloneNode(true);
-            clone.setAttribute('data-live','1');
-            document.head.appendChild(clone);
-          });
+        if(msg.type==='pageSaved'&&msg.pageId===PAGE){
+          badge.classList.add('upd');
+          bt.textContent='Updating...';
+          load(msg.code);
+          setTimeout(function(){
+            badge.classList.remove('upd');
+            bt.textContent='Updated \u2713';
+            setTimeout(function(){bt.textContent='Live';},2000);
+          },400);
         }
       }catch(err){}
     };
     ws.onclose=function(){
-      // Auto-reconnect after 2 sec
-      setTimeout(connect,2000);
+      retries++;
+      bt.textContent='Reconnecting...';
+      setTimeout(connect,Math.min(retries*1000,8000));
     };
+    ws.onerror=function(){ws.close();};
   }
+
   connect();
 })();
-<\/script>`;
+</script>
+</body>
+</html>`;
 
-    let html = page.code || '<html><body></body></html>';
-
-    // Inject before </body>
-    if (/<\/body>/i.test(html)) {
-      html = html.replace(/<\/body>/i, liveScript + '\n</body>');
-    } else {
-      html = html + liveScript;
-    }
-
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.setHeader('Cache-Control', 'no-store, no-cache');
+    res.setHeader('Content-Type','text/html;charset=utf-8');
+    res.setHeader('Cache-Control','no-store');
     res.send(html);
-  } catch (err) {
-    res.status(500).send(errPage('Server error: ' + err.message));
+  } catch(err){
+    res.status(500).send(errPage('Server error'));
   }
 });
 
-function errPage(msg) {
-  return `<!DOCTYPE html>
-<html>
-<head><meta name="viewport" content="width=device-width,initial-scale=1"></head>
-<body style="font-family:system-ui;display:flex;align-items:center;justify-content:center;
-             height:100vh;margin:0;background:#f8fafc;">
-  <div style="text-align:center;color:#64748b;">
-    <div style="font-size:48px;margin-bottom:16px;">📭</div>
-    <h2 style="font-weight:600;">${msg}</h2>
-  </div>
-</body>
-</html>`;
+function esc(s){
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function errPage(msg){
+  return `<!DOCTYPE html><html><body style="font-family:system-ui;display:flex;align-items:center;justify-content:center;height:100vh;color:#64748b"><div style="text-align:center"><div style="font-size:48px">📭</div><h2>${msg}</h2></div></body></html>`;
 }
 
-// ════════════════════════════════════════════════════════════════
-//  START
-// ════════════════════════════════════════════════════════════════
-server.listen(PORT, () => {
-  console.log('\n╔════════════════════════════════╗');
-  console.log('║      PageCraft  🚀 Started     ║');
-  console.log('╚════════════════════════════════╝');
-  if (IS_RENDER) {
-    console.log(`🌐 Environment  : Render.com`);
-    console.log(`🔗 App URL      : https://${process.env.RENDER_EXTERNAL_HOSTNAME}`);
-  } else {
-    console.log(`💻 Environment  : Localhost`);
-    console.log(`🔗 Editor URL   : http://localhost:${PORT}`);
-    console.log(`🔗 View URL     : http://localhost:${PORT}/view/<shareToken>`);
-  }
-  console.log(`📦 Port         : ${PORT}`);
-  console.log('');
+server.listen(PORT,()=>{
+  console.log('PageCraft started on port '+PORT);
 });
